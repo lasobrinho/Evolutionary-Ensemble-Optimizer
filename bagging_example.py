@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_estimators = 100
     pop_size = n_estimators // 2
     iterations = 5000   
-    mutation_rate = 0.2
+    mutation_rate = 0.25
     crossover_rate = 1.0
     n_jobs = 8
 
@@ -46,4 +46,7 @@ if __name__ == "__main__":
                                iterations=iterations, 
                                n_jobs=n_jobs)
 
-    gen_opt.run_genetic_evolution()
+    best_subset_ensemble, best_score = gen_opt.run_genetic_evolution()
+
+    print(best_score)
+    print(best_subset_ensemble)
