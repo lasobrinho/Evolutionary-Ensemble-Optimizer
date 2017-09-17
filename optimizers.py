@@ -106,17 +106,20 @@ class GeneticOptimizer(object):
                 individual[index_mutation] ^= 1
         return individual
 
-    def __reproduce_population(self, fitness_prob, sel_sensivity=None):
+    def __reproduce_population(self, fitness_prob, sel_sensivity=None, elitism=False):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
         sorted_pop = [(idx, ind) for idx, ind in zip(list(range(len(sorted_pop))), sorted_pop)]
 
         if sel_sensivity:
             a = np.arange(1, len(sorted_pop) + 1)
             sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
-            n_promoted = 0
         else:
             sel_prob = sorted(fitness_prob)
+
+        if elitism:
             n_promoted = 2
+        else:
+            n_promoted = 0
 
         new_pop = []
         crossover_pop = []
@@ -127,7 +130,7 @@ class GeneticOptimizer(object):
             crossover_pop.append(child)
         
         new_pop = [self.__mutate(individual) for individual in crossover_pop]
-        if not sel_sensivity:
+        if elitism:
             new_pop += [e[1] for e in sorted_pop[-n_promoted:]]
 
         return new_pop
@@ -180,7 +183,7 @@ class GeneticOptimizer(object):
             print("\nReproducing population...        ")
             self.natural_mutations = 0
             self.soft_mutations = 0
-            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85)
+            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85, elitism=True)
             print("Natural mutations: %d" % (self.natural_mutations) + " (%.2f%%)" % ((self.natural_mutations / len(self.pop)) * 100))
             print("Soft mutations:    %d" % (self.soft_mutations) + " (%.2f%%)" % ((self.soft_mutations / len(self.pop)) * 100))
 
