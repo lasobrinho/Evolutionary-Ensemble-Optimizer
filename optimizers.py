@@ -5,6 +5,8 @@ from colorama import init, Fore, Style
 from metrics import majority_voting_score
 from sklearn.externals.joblib import Parallel, delayed
 
+from collections import Counter
+
 
 def _get_individual_score(individual, estimators, X, y, classes):
     selected_estimators = [estimator for estimator, isSelected in zip(estimators, individual) if isSelected]
@@ -25,7 +27,6 @@ class GeneticOptimizer(object):
                  target, 
                  pop_size=30, 
                  mutation_rate=0.1, 
-                 crossover_rate=0.9, 
                  iterations=1000, 
                  n_jobs=1):     
         self.estimators = estimators
@@ -34,9 +35,9 @@ class GeneticOptimizer(object):
         self.y = target
         self.pop_size = pop_size
         self.mutation_rate = mutation_rate
-        self.crossover_rate = crossover_rate
         self.iterations = iterations
         self.n_jobs = n_jobs
+        self.no_score_change = 0
         self.__generate_random_population()
         init()
 
@@ -59,7 +60,6 @@ class GeneticOptimizer(object):
 
     def __parallel_score_processing(self):
         starts = self.__compute_starts()
-
         scores = Parallel(
             n_jobs=self.n_jobs, verbose=0)(
             delayed(_get_population_scores)(self.pop[starts[i]:starts[i + 1]],
@@ -75,49 +75,67 @@ class GeneticOptimizer(object):
         reproduction_prob = [score/scores_sum for score in scores]
         return reproduction_prob
 
-    def __update_pop_history(self):
-        self.pop_history = []
-        pop_hashes = [hash(e) for e in [''.join([str(s) for s in x]) for x in self.pop]]
-        for pop_hash in pop_hashes:
-            if pop_hash not in self.pop_history:
-                self.pop_history.append(pop_hash)
-
-    def __crossover(self, pair):
-        cut_index = randint(10, len(pair[0])-10)
+    def __generate_child(self, pair):
+        cut_index = randint(1, len(pair[0][1]) - 2)
         individual_1 = pair[0]
         individual_2 = pair[1]
-        # pair[0] = individual_1[:cut_index] + individual_2[cut_index:]
-        # pair[1] = individual_2[:cut_index] + individual_1[cut_index:]
-        child = individual_1[:cut_index] + individual_2[cut_index:]
+        child = individual_1[1][:cut_index] + individual_2[1][cut_index:]
         return child
 
+    def __crossover(self, pair, crossover_pop=None):
+        child = self.__generate_child(pair)
+        if crossover_pop:
+            original_child = child
+            while child in crossover_pop:
+                child = self.__soft_mutate(original_child[:])
+            if original_child != child:
+                self.soft_mutations += 1
+        return child
+
+    def __soft_mutate(self, individual):
+        index_mutation = randint(0, len(individual) - 1)
+        individual[index_mutation] ^= 1
+        return individual
+
     def __mutate(self, individual):
-        if (np.random.rand() <= self.mutation_rate):
-            n_mutations = randint(0, len(individual) // 2)
+        if np.random.rand() <= self.mutation_rate:
+            self.natural_mutations += 1
+            n_mutations = randint(1, len(individual) // 8)
             for _ in range(n_mutations):
-                index_mutation = randint(0, len(individual)-1)
+                index_mutation = randint(0, len(individual) - 1)
                 individual[index_mutation] ^= 1
         return individual
 
-    def __reproduce_population(self, fitness_prob, sel_sensivity=0.85):
+    def __reproduce_population(self, fitness_prob, sel_sensivity=None):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
+        sorted_pop = [(idx, ind) for idx, ind in zip(list(range(len(sorted_pop))), sorted_pop)]
 
-        a = np.arange(1, len(sorted_pop) + 1)
-        sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
+        if sel_sensivity:
+            a = np.arange(1, len(sorted_pop) + 1)
+            sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
+            n_promoted = 0
+        else:
+            sel_prob = sorted(fitness_prob)
+            n_promoted = 2
 
         new_pop = []
         crossover_pop = []
-        for i in range(len(self.pop)):
+        for i in range(len(self.pop) - n_promoted):
             pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
             pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
-            child = self.__crossover(pair)
-            while child in crossover_pop:
-                pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
-                pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
-                child = self.__crossover(pair)
+            child = self.__crossover(pair, crossover_pop)
             crossover_pop.append(child)
+        
         new_pop = [self.__mutate(individual) for individual in crossover_pop]
+        if not sel_sensivity:
+            new_pop += [e[1] for e in sorted_pop[-n_promoted:]]
+
         return new_pop
+
+    def __get_population_diversity(self):
+        duplicates = dict(Counter([''.join([str(s) for s in i]) for i in self.pop]))
+        duplicates_count = np.sum([duplicates[k] - 1 for k in duplicates.keys()])
+        return ((len(self.pop) - duplicates_count) / len(self.pop)), duplicates_count
 
     def __rank_population(self):
         scores = self.__parallel_score_processing()
@@ -128,42 +146,48 @@ class GeneticOptimizer(object):
         sorted_pop, scores = self.__rank_population()
         best_individual = sorted_pop[0]
         best_score = _get_individual_score(best_individual, self.estimators, self.X, self.y, self.classes)
+        score_diff = (best_score - initial_score) * 100
         if best_score > prev_score:
-            print("Best individual score: " + Fore.GREEN + Style.BRIGHT + "%f" % best_score + Style.RESET_ALL + " (%f%%)" % ((best_score - initial_score) * 100))
+            self.no_score_change = 0
+            print("Best score:      " + Fore.GREEN + Style.BRIGHT + "%f%%" % (best_score * 100) + Style.RESET_ALL + " (%f%%)" % (score_diff) + " (%d) " % self.no_score_change)
         elif best_score < prev_score:
-            print("Best individual score: " + Fore.RED + Style.BRIGHT + "%f" % best_score + Style.RESET_ALL + " (%f%%)" % ((best_score - initial_score) * 100))
+            print("Best score:      " + Fore.RED + Style.BRIGHT + "%f%%" % (best_score * 100) + Style.RESET_ALL + " (%f%%)" % (score_diff) + " (%d) " % self.no_score_change)
         else:
-            print("Best individual score: " + Fore.CYAN + Style.BRIGHT + "%f" % best_score + Style.RESET_ALL + " (%f%%)" % ((best_score - initial_score) * 100))
+            self.no_score_change += 1
+            print("Best score:      " + Fore.CYAN + Style.BRIGHT + "%f%%" % (best_score * 100) + Style.RESET_ALL + " (%f%%)" % (score_diff) + " (%d) " % self.no_score_change)
 
-        t = 5
-        print("Top %d scores:" % t)
-        top_individuals = sorted_pop[:t]
-        print(["%f" % ((_get_individual_score(individual, self.estimators, self.X, self.y, self.classes) - initial_score) * 100) for individual in top_individuals])
-        print([hash(e) for e in [''.join([str(s) for s in x]) for x in top_individuals]])
+        print("Average score:   %f%%" % (np.mean(scores) * 100))
+        print("Standard dev.:    %f%%" % (np.std(scores) * 100))
+        pop_diversity, pop_duplicates = self.__get_population_diversity()
+        print("Pop. diversity: %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % pop_duplicates)
 
         return best_score, scores, best_individual
 
 
     def run_genetic_evolution(self):        
         initial_score = majority_voting_score(self.X, self.y, self.estimators, self.classes)
-        print("\nInitial score = %f" % initial_score)
+        print("\nInitial score = %f%%" % (initial_score * 100))
         prev_score = 0
 
-        print("\nGeneration: 0")                
+        print("\n_________________________________________________________________")
+        print("Generation: 0")                
         scores = self.__parallel_score_processing()
 
         for i in range(self.iterations):
             
-            print("Calculating population fitness...")  
             fitness_prob = self.__calculate_fitness_probabilities(scores)
             
-            print("Reproducing population...        ")
-            self.__update_pop_history()
-            self.pop = self.__reproduce_population(fitness_prob)
+            print("\nReproducing population...        ")
+            self.natural_mutations = 0
+            self.soft_mutations = 0
+            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85)
+            print("Natural mutations: %d" % (self.natural_mutations) + " (%.2f%%)" % ((self.natural_mutations / len(self.pop)) * 100))
+            print("Soft mutations:    %d" % (self.soft_mutations) + " (%.2f%%)" % ((self.soft_mutations / len(self.pop)) * 100))
 
-            print("Calculating statistics...   ")
+            print("\nCalculating statistics...   ")
             prev_score, scores, best_individual = self.__calculate_population_stats(initial_score, prev_score)
 
-            print("\nGeneration: %d" % (i + 1))
+            print("\n_________________________________________________________________")
+            print("Generation: %d" % (i + 1))
 
         return best_individual, prev_score
