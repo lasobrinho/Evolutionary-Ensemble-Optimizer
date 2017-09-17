@@ -83,22 +83,23 @@ class GeneticOptimizer(object):
                 self.pop_history.append(pop_hash)
 
     def __crossover(self, pair):
-        cut_index = randint(1, len(pair[0])-2)
+        cut_index = randint(10, len(pair[0])-10)
         individual_1 = pair[0]
         individual_2 = pair[1]
-        pair[0] = individual_1[:cut_index] + individual_2[cut_index:]
-        pair[1] = individual_2[:cut_index] + individual_1[cut_index:]
-        return pair
+        # pair[0] = individual_1[:cut_index] + individual_2[cut_index:]
+        # pair[1] = individual_2[:cut_index] + individual_1[cut_index:]
+        child = individual_1[:cut_index] + individual_2[cut_index:]
+        return child
 
     def __mutate(self, individual):
-        if (np.random.rand() <= self.mutation_rate) or (hash(''.join([str(s) for s in individual])) in self.pop_history):
+        if (np.random.rand() <= self.mutation_rate):
             n_mutations = randint(0, len(individual) // 2)
             for _ in range(n_mutations):
                 index_mutation = randint(0, len(individual)-1)
                 individual[index_mutation] ^= 1
         return individual
 
-    def __reproduce_population(self, fitness_prob, sel_sensivity=0.9):
+    def __reproduce_population(self, fitness_prob, sel_sensivity=0.85):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
 
         a = np.arange(1, len(sorted_pop) + 1)
@@ -106,14 +107,16 @@ class GeneticOptimizer(object):
 
         new_pop = []
         crossover_pop = []
-        for i in range(int(len(self.pop)/2)):
-            pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob)
+        for i in range(len(self.pop)):
+            pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
             pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
-            pair = self.__crossover(pair)
-            crossover_pop.append(pair[0])
-            crossover_pop.append(pair[1])
-        new_pop = [self.__mutate(individual) for individual in crossover_pop[1:]]
-        new_pop.append(sorted_pop[-1])
+            child = self.__crossover(pair)
+            while child in crossover_pop:
+                pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
+                pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
+                child = self.__crossover(pair)
+            crossover_pop.append(child)
+        new_pop = [self.__mutate(individual) for individual in crossover_pop]
         return new_pop
 
     def __rank_population(self):
@@ -138,7 +141,7 @@ class GeneticOptimizer(object):
         print(["%f" % ((_get_individual_score(individual, self.estimators, self.X, self.y, self.classes) - initial_score) * 100) for individual in top_individuals])
         print([hash(e) for e in [''.join([str(s) for s in x]) for x in top_individuals]])
 
-        return best_score, scores
+        return best_score, scores, best_individual
 
 
     def run_genetic_evolution(self):        
@@ -159,6 +162,8 @@ class GeneticOptimizer(object):
             self.pop = self.__reproduce_population(fitness_prob)
 
             print("Calculating statistics...   ")
-            prev_score, scores = self.__calculate_population_stats(initial_score, prev_score)
+            prev_score, scores, best_individual = self.__calculate_population_stats(initial_score, prev_score)
 
             print("\nGeneration: %d" % (i + 1))
+
+        return best_individual, prev_score
