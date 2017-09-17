@@ -26,7 +26,7 @@ if __name__ == "__main__":
     n_estimators = 100
     pop_size = n_estimators // 2
     iterations = 5000   
-    mutation_rate = 0.15
+    mutation_rate = 0.2
     crossover_rate = 1.0
     n_jobs = 8
 

@@ -91,8 +91,8 @@ class GeneticOptimizer(object):
         return pair
 
     def __mutate(self, individual):
-        if (np.random.rand() <= self.mutation_rate) or ((np.random.rand() <= 0.9) and (hash(''.join([str(s) for s in individual])) in self.pop_history)):
-            n_mutations = randint(0, len(individual) // 4)
+        if (np.random.rand() <= self.mutation_rate) or (hash(''.join([str(s) for s in individual])) in self.pop_history):
+            n_mutations = randint(0, len(individual) // 2)
             for _ in range(n_mutations):
                 index_mutation = randint(0, len(individual)-1)
                 individual[index_mutation] ^= 1
@@ -101,20 +101,19 @@ class GeneticOptimizer(object):
     def __reproduce_population(self, fitness_prob, sel_sensivity=0.9):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
 
-        sel_sensivity = 0.85
         a = np.arange(1, len(sorted_pop) + 1)
         sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
 
         new_pop = []
         crossover_pop = []
         for i in range(int(len(self.pop)/2)):
-            # pair = [sorted_pop[i], self.pop[np.random.choice(len(self.pop), 1, p=sel_prob)[0]]]
             pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob)
             pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
             pair = self.__crossover(pair)
             crossover_pop.append(pair[0])
             crossover_pop.append(pair[1])
-        new_pop = [self.__mutate(individual) for individual in crossover_pop]
+        new_pop = [self.__mutate(individual) for individual in crossover_pop[1:]]
+        new_pop.append(sorted_pop[-1])
         return new_pop
 
     def __rank_population(self):
