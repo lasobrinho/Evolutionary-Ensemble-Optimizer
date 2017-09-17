@@ -10,7 +10,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 if __name__ == "__main__":
 
-    print("\n---------------------------------------")
+    print("\n=================================================================")
 
     datasetFolderName = 'UCI_Datasets/'
     datasetFileName = 'letter-recognition.data'
@@ -26,11 +26,10 @@ if __name__ == "__main__":
     n_estimators = 100
     pop_size = n_estimators // 2
     iterations = 5000   
-    mutation_rate = 0.25
-    crossover_rate = 1.0
+    mutation_rate = 0.2
     n_jobs = 8
 
-    print("\nGenerating estimators from Bagging method")
+    print("\nGenerating estimators from Bagging method...")
     max_samples_ratio = 0.5
     bagging = BaggingClassifier(base_estimator=DecisionTreeClassifier(), bootstrap=False, n_estimators=n_estimators, max_samples=max_samples_ratio)
     bagging.fit(X_train, y_train)
@@ -42,7 +41,6 @@ if __name__ == "__main__":
                                target=y_test, 
                                pop_size=pop_size, 
                                mutation_rate=mutation_rate, 
-                               crossover_rate=crossover_rate, 
                                iterations=iterations, 
                                n_jobs=n_jobs)
 
