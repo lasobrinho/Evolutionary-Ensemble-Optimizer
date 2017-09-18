@@ -38,6 +38,7 @@ class GeneticOptimizer(object):
         self.iterations = iterations
         self.n_jobs = n_jobs
         self.no_score_change = 0
+        self.duplicates_count = 0
         self.__generate_random_population()
         init()
 
@@ -75,15 +76,21 @@ class GeneticOptimizer(object):
         reproduction_prob = [score/scores_sum for score in scores]
         return reproduction_prob
 
-    def __generate_child(self, pair):
-        cut_index = randint(1, len(pair[0][1]) - 2)
-        individual_1 = pair[0]
-        individual_2 = pair[1]
-        child = individual_1[1][:cut_index] + individual_2[1][cut_index:]
+    def __generate_child(self, pair, n_point_crossover):
+        parent_1 = pair[0]
+        parent_2 = pair[1]
+        if n_point_crossover:
+            n_cuts = randint(1, 5)
+            cut_indexes = sorted([randint(1, len(parent_1[1])-2) for i in list(range(n_cuts))] + [0, len(parent_1[1])])
+            child_lists = [parent_1[1][cut_indexes[cut_indexes.index(i)-1]:i] if (cut_indexes[1:].index(i) % 2 == 0) else parent_2[1][cut_indexes[cut_indexes.index(i)-1]:i] for i in cut_indexes[1:]]
+            child = [e for sublist in child_lists for e in sublist]
+        else:            
+            cut_index = randint(1, len(pair[0][1]) - 2)        
+            child = parent_1[1][:cut_index] + parent_2[1][cut_index:]
         return child
 
-    def __crossover(self, pair, crossover_pop=None):
-        child = self.__generate_child(pair)
+    def __crossover(self, pair, crossover_pop=None, n_point_crossover=False):
+        child = self.__generate_child(pair, n_point_crossover)
         if crossover_pop:
             original_child = child
             while child in crossover_pop:
@@ -100,11 +107,16 @@ class GeneticOptimizer(object):
     def __mutate(self, individual):
         if np.random.rand() <= self.mutation_rate:
             self.natural_mutations += 1
-            n_mutations = randint(1, len(individual) // 8)
+            n_mutations = randint(1, len(individual) // 4)
             for _ in range(n_mutations):
                 index_mutation = randint(0, len(individual) - 1)
                 individual[index_mutation] ^= 1
         return individual
+
+    def __random_selection(self, sorted_pop, sel_prob):
+        pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
+        pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
+        return pair
 
     def __reproduce_population(self, fitness_prob, sel_sensivity=None, elitism=False):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
@@ -124,9 +136,13 @@ class GeneticOptimizer(object):
         new_pop = []
         crossover_pop = []
         for i in range(len(self.pop) - n_promoted):
-            pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
-            pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
-            child = self.__crossover(pair, crossover_pop)
+            pair = self.__random_selection(sorted_pop, sel_prob)
+            while pair[0][1] == pair[1][1]:
+                pair = self.__random_selection(sorted_pop, sel_prob)
+            if self.duplicates_count > 5:
+                child = self.__crossover(pair, crossover_pop, n_point_crossover=True)
+            else:
+                child = self.__crossover(pair, n_point_crossover=True)
             crossover_pop.append(child)
         
         new_pop = [self.__mutate(individual) for individual in crossover_pop]
@@ -135,10 +151,12 @@ class GeneticOptimizer(object):
 
         return new_pop
 
-    def __get_population_diversity(self):
+    def __update_duplicates(self):
         duplicates = dict(Counter([''.join([str(s) for s in i]) for i in self.pop]))
-        duplicates_count = np.sum([duplicates[k] - 1 for k in duplicates.keys()])
-        return ((len(self.pop) - duplicates_count) / len(self.pop)), duplicates_count
+        self.duplicates_count = np.sum([duplicates[k] - 1 for k in duplicates.keys()])
+
+    def __get_population_diversity(self):
+        return ((len(self.pop) - self.duplicates_count) / len(self.pop))
 
     def __rank_population(self):
         scores = self.__parallel_score_processing()
@@ -161,8 +179,8 @@ class GeneticOptimizer(object):
 
         print("Average score:   %f%%" % (np.mean(scores) * 100))
         print("Standard dev.:    %f%%" % (np.std(scores) * 100))
-        pop_diversity, pop_duplicates = self.__get_population_diversity()
-        print("Pop. diversity: %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % pop_duplicates)
+        pop_diversity = self.__get_population_diversity()
+        print("Pop. diversity: %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % self.duplicates_count)
 
         return best_score, scores, best_individual
 
@@ -183,7 +201,8 @@ class GeneticOptimizer(object):
             print("\nReproducing population...        ")
             self.natural_mutations = 0
             self.soft_mutations = 0
-            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85, elitism=True)
+            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.9, elitism=True)
+            self.__update_duplicates()
             print("Natural mutations: %d" % (self.natural_mutations) + " (%.2f%%)" % ((self.natural_mutations / len(self.pop)) * 100))
             print("Soft mutations:    %d" % (self.soft_mutations) + " (%.2f%%)" % ((self.soft_mutations / len(self.pop)) * 100))
 
