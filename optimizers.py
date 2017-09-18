@@ -94,7 +94,10 @@ class GeneticOptimizer(object):
         if crossover_pop:
             original_child = child
             while child in crossover_pop:
-                child = self.__soft_mutate(original_child[:])
+                if self.no_score_change > 50:
+                    child = self.__mutate(original_child[:])
+                else:    
+                    child = self.__soft_mutate(original_child[:])
             if original_child != child:
                 self.soft_mutations += 1
         return child
@@ -121,11 +124,16 @@ class GeneticOptimizer(object):
         pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
         return pair
 
+    def __adjust_sel_sensivity(self, sel_sensivity):
+        return min(sel_sensivity + (self.no_score_change * 0.005), 0.999)
+
     def __reproduce_population(self, fitness_prob, sel_sensivity=None, elitism=False):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
         sorted_pop = [(idx, ind) for idx, ind in zip(list(range(len(sorted_pop))), sorted_pop)]
 
         if sel_sensivity:
+            sel_sensivity = self.__adjust_sel_sensivity(sel_sensivity)
+            print("** sel_sensivity = %f" % sel_sensivity)
             a = np.arange(1, len(sorted_pop) + 1)
             sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
         else:
@@ -142,10 +150,7 @@ class GeneticOptimizer(object):
             pair = self.__random_selection(sorted_pop, sel_prob, pair_indexes_history)
             while pair[0][1] == pair[1][1]:
                 pair = self.__random_selection(sorted_pop, sel_prob, pair_indexes_history)
-            if self.duplicates_count > 10:
-                child = self.__crossover(pair, crossover_pop, n_point_crossover=True)
-            else:
-                child = self.__crossover(pair, n_point_crossover=True)
+            child = self.__crossover(pair, crossover_pop, n_point_crossover=True)
             crossover_pop.append(child)
         
         new_pop = [self.__mutate(individual) for individual in crossover_pop]
@@ -203,7 +208,7 @@ class GeneticOptimizer(object):
             print("\nReproducing population...        ")
             self.natural_mutations = 0
             self.soft_mutations = 0
-            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.95, elitism=True)
+            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85, elitism=True)
             self.__update_duplicates()
             print("Natural mutations: %d" % (self.natural_mutations) + " (%.2f%%)" % ((self.natural_mutations / len(self.pop)) * 100))
             print("Soft mutations:    %d" % (self.soft_mutations) + " (%.2f%%)" % ((self.soft_mutations / len(self.pop)) * 100))
