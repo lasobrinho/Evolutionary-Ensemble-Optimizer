@@ -1,6 +1,9 @@
 
 import numpy as np
 import string
+import pickle
+import time
+
 from optimizers import GeneticOptimizer
 from optimizers import get_individual_score
 
@@ -20,7 +23,7 @@ if __name__ == "__main__":
     letter_dataset = np.loadtxt(datasetFolderName + datasetFileName, delimiter=",")
     letter_data = letter_dataset[:, 1:17]
     letter_target = letter_dataset[:, 0]
-    X_train, X_test, y_train, y_test = train_test_split(letter_data, letter_target, test_size=0.4)
+    X_train, X_test, y_train, y_test = train_test_split(letter_data, letter_target, test_size=0.5)
     X_test, X_val, y_test, y_val = train_test_split(X_test, y_test, test_size=0.5)
 
 
@@ -60,6 +63,10 @@ if __name__ == "__main__":
 
     print("\nTesting best combination on validation set...")
     final_score = get_individual_score(best_found[1], bagging.estimators_, X_val, y_val, bagging.classes_)
-    print("Final score: %f%% (+%f%%)" % (final_score * 100, (final_score - initial_score) * 100))
+    print("Final score: %f%% (%f%%)" % (final_score * 100, (final_score - initial_score) * 100))
+
+    filename = 'optimized_model_%d.ens' % int(time.time())
+    pickle.dump((bagging, best_found[1]), open(filename, 'wb'))
+    print("\nSaved optimized model as [%s]" % filename)
 
     print("\n================================================================================")
