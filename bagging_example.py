@@ -2,6 +2,7 @@
 import numpy as np
 import string
 from optimizers import GeneticOptimizer
+from optimizers import get_individual_score
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import BaggingClassifier
@@ -10,7 +11,7 @@ from sklearn.tree import DecisionTreeClassifier
 
 if __name__ == "__main__":
 
-    print("\n=================================================================")
+    print("\n================================================================================")
 
     datasetFolderName = 'UCI_Datasets/'
     datasetFileName = 'letter-recognition.data'
@@ -28,7 +29,9 @@ if __name__ == "__main__":
     iterations = 5000   
     mutation_rate = 0.2
     crossover_rate = 0.9
-    n_jobs = 8
+    n_jobs = 4
+    elitism = False
+    n_point_crossover = True
 
     print("\nGenerating estimators from Bagging method...")
     max_samples_ratio = 0.5
@@ -40,13 +43,23 @@ if __name__ == "__main__":
                                classes=bagging.classes_, 
                                data=X_test, 
                                target=y_test, 
-                               pop_size=60, 
+                               pop_size=pop_size, 
                                mutation_rate=mutation_rate,
                                crossover_rate=crossover_rate,
-                               iterations=iterations, 
+                               iterations=iterations,
+                               elitism=elitism,
+                               n_point_crossover=n_point_crossover,
                                n_jobs=n_jobs)
 
-    best_subset_ensemble, best_score = gen_opt.run_genetic_evolution()
+    best_found, initial_score = gen_opt.run_genetic_evolution()
 
-    print(best_score)
-    print(best_subset_ensemble)
+    print()
+    print("Best individual score found: %f%% (+%f%%)" % (best_found[0] * 100, (best_found[0] - initial_score) * 100))
+    print("Estimators combination for the best score:")
+    print(best_found[1])
+
+    print("\nTesting best combination on validation set...")
+    final_score = get_individual_score(best_found[1], bagging.estimators_, X_val, y_val, bagging.classes_)
+    print("Final score: %f%% (+%f%%)" % (final_score * 100, (final_score - initial_score) * 100))
+
+    print("\n================================================================================")
