@@ -29,9 +29,9 @@ if __name__ == "__main__":
     iterations = 5000   
     mutation_rate = 0.2
     crossover_rate = 0.9
-    n_jobs = 4
+    n_jobs = 8
     elitism = False
-    n_point_crossover = True
+    n_point_crossover = False
 
     print("\nGenerating estimators from Bagging method...")
     max_samples_ratio = 0.5
