@@ -26,7 +26,8 @@ class GeneticOptimizer(object):
                  data, 
                  target, 
                  pop_size=30, 
-                 mutation_rate=0.1, 
+                 mutation_rate=0.1,
+                 crossover_rate=0.9,
                  iterations=1000, 
                  n_jobs=1):     
         self.estimators = estimators
@@ -35,10 +36,12 @@ class GeneticOptimizer(object):
         self.y = target
         self.pop_size = pop_size
         self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
         self.iterations = iterations
         self.n_jobs = n_jobs
         self.no_score_change = 0
         self.duplicates_count = 0
+        self.pop_history = []
         self.__generate_random_population()
         init()
 
@@ -47,11 +50,12 @@ class GeneticOptimizer(object):
         print("Population size = %d" % self.pop_size)
         print("Individual size (genes) = %d" % len(self.estimators))
         self.pop = []
-        for i in range(self.pop_size):
+        for _ in range(self.pop_size):
             individual = []
-            for j in range(len(self.estimators)):
+            for _ in range(len(self.estimators)):
                 individual.append(randint(0, 1))
             self.pop.append(individual)
+            self.__update_pop_history(individual)
 
     def __compute_starts(self):
         n_individuals_per_job = (len(self.pop) // self.n_jobs) * np.ones(self.n_jobs, dtype=np.int)
@@ -72,34 +76,45 @@ class GeneticOptimizer(object):
         return scores
 
     def __calculate_fitness_probabilities(self, scores):
-        scores_sum = np.sum(scores)
-        reproduction_prob = [score/scores_sum for score in scores]
+        scores_mean = np.mean(scores)
+        scores_std = np.std(scores)
+
+        new_scores = [((score + (score - scores_mean) * 1000)**((score - scores_mean)/scores_std)) if ((score + (score - scores_mean) * 1000)**((score - scores_mean)/scores_std)) > 0 else 0.1 for score in scores]
+
+        scores_sum = np.sum(new_scores)
+        reproduction_prob = [score/scores_sum for score in new_scores]
         return reproduction_prob
 
     def __generate_child(self, pair, n_point_crossover):
         parent_1 = pair[0]
         parent_2 = pair[1]
         if n_point_crossover:
-            n_cuts = randint(1, 5)
+            n_cuts = randint(1, len(self.estimators) // 2)
             cut_indexes = sorted([randint(1, len(parent_1[1])-2) for i in list(range(n_cuts))] + [0, len(parent_1[1])])
             child_lists = [parent_1[1][cut_indexes[cut_indexes.index(i)-1]:i] if (cut_indexes[1:].index(i) % 2 == 0) else parent_2[1][cut_indexes[cut_indexes.index(i)-1]:i] for i in cut_indexes[1:]]
             child = [e for sublist in child_lists for e in sublist]
-        else:            
-            cut_index = randint(1, len(pair[0][1]) - 2)        
+        else:
+            cut_index = randint(1, len(pair[0][1]) - 2)
             child = parent_1[1][:cut_index] + parent_2[1][cut_index:]
         return child
 
     def __crossover(self, pair, crossover_pop=None, n_point_crossover=False):
-        child = self.__generate_child(pair, n_point_crossover)
-        if crossover_pop:
-            original_child = child
-            while child in crossover_pop:
-                if self.no_score_change > 50:
-                    child = self.__mutate(original_child[:])
-                else:    
-                    child = self.__soft_mutate(original_child[:])
+        if np.random.rand() <= self.crossover_rate:
+            child = self.__generate_child(pair, n_point_crossover)
+            original_child = child[:]
+            while child in self.pop_history:
+                self.children_rejected += 1
+                child = self.__soft_mutate(child)
             if original_child != child:
-                self.soft_mutations += 1
+                self.forced_mutations += 1
+        else:
+            self.skipped_crossover += 1
+            r = np.random.rand()
+            if r < 0.5:
+                child = pair[0][1]
+            else:
+                child = pair[1][1]
+        self.__update_pop_history(child)
         return child
 
     def __soft_mutate(self, individual):
@@ -110,52 +125,56 @@ class GeneticOptimizer(object):
     def __mutate(self, individual):
         if np.random.rand() <= self.mutation_rate:
             self.natural_mutations += 1
-            n_mutations = randint(1, len(individual) // 4)
+            n_mutations = randint(1, len(individual) // 8)
+            index_history = []
             for _ in range(n_mutations):
                 index_mutation = randint(0, len(individual) - 1)
+                while index_mutation in index_history:
+                    index_mutation = randint(0, len(individual) - 1)
+                index_history.append(index_mutation)
                 individual[index_mutation] ^= 1
         return individual
 
-    def __random_selection(self, sorted_pop, sel_prob, pair_indexes_history):
+    def __random_selection(self, sorted_pop, sel_prob):
         pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
-        while pair_indexes in pair_indexes_history:
-            pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
-        pair_indexes_history.append(pair_indexes)
         pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
         return pair
 
     def __adjust_sel_sensivity(self, sel_sensivity):
-        return min(sel_sensivity + (self.no_score_change * 0.005), 0.999)
+        return min(sel_sensivity + (self.no_score_change * 0.010), 0.950)
 
     def __reproduce_population(self, fitness_prob, sel_sensivity=None, elitism=False):
         sorted_pop = [pop for _, pop in sorted(zip(fitness_prob, self.pop))]
         sorted_pop = [(idx, ind) for idx, ind in zip(list(range(len(sorted_pop))), sorted_pop)]
 
         if sel_sensivity:
-            sel_sensivity = self.__adjust_sel_sensivity(sel_sensivity)
-            print("** sel_sensivity = %f" % sel_sensivity)
+            # sel_sensivity = self.__adjust_sel_sensivity(sel_sensivity)
+            # print("** sel_sensivity = %f" % sel_sensivity)
             a = np.arange(1, len(sorted_pop) + 1)
             sel_prob = [((sel_sensivity - 1) / ((sel_sensivity**len(a)) - (1))) * (sel_sensivity**(len(a)-i)) for i in a]
         else:
             sel_prob = sorted(fitness_prob)
         if elitism:
             n_promoted = 2
+            elite = [e[1][:] for e in sorted_pop[-n_promoted:]]
         else:
             n_promoted = 0
 
         new_pop = []
         crossover_pop = []
-        pair_indexes_history = []
+
+        for e in elite:
+            if e not in self.pop_history:
+                self.__update_pop_history(e)
+
         for i in range(len(self.pop) - n_promoted):
-            pair = self.__random_selection(sorted_pop, sel_prob, pair_indexes_history)
-            while pair[0][1] == pair[1][1]:
-                pair = self.__random_selection(sorted_pop, sel_prob, pair_indexes_history)
-            child = self.__crossover(pair, crossover_pop, n_point_crossover=True)
+            pair = self.__random_selection(sorted_pop, sel_prob)
+            child = self.__crossover(pair, crossover_pop, n_point_crossover=False)
             crossover_pop.append(child)
         
         new_pop = [self.__mutate(individual) for individual in crossover_pop]
         if elitism:
-            new_pop += [e[1] for e in sorted_pop[-n_promoted:]]
+            new_pop += elite
         return new_pop
 
     def __update_duplicates(self):
@@ -169,6 +188,19 @@ class GeneticOptimizer(object):
         scores = self.__parallel_score_processing()
         sorted_pop = [individual for _, individual in sorted(zip(scores, self.pop), reverse=True)]
         return sorted_pop, scores
+
+    def __remove_outperformers(self, scores):
+        mean_score = np.mean(scores)
+        i = 0
+        new_pop = []
+        for individual in self.pop:
+            if scores[i] < mean_score:
+                new_individual = []
+                for _ in range(len(self.estimators)):
+                    new_individual.append(randint(0, 1))
+                self.pop[i] = new_individual
+            i += 1
+
 
     def __calculate_population_stats(self, initial_score, prev_score):
         sorted_pop, scores = self.__rank_population()
@@ -187,14 +219,21 @@ class GeneticOptimizer(object):
         print("Average score:   %f%%" % (np.mean(scores) * 100))
         print("Standard dev.:    %f%%" % (np.std(scores) * 100))
         pop_diversity = self.__get_population_diversity()
-        print("Pop. diversity: %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % self.duplicates_count)
+        print("Pop. diversity:  %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % self.duplicates_count)
+        print("Chromossomes:    %d" % len(self.pop_history))
+
+        # self.__remove_outperformers(scores)
 
         return best_score, scores, best_individual
 
+    def __update_pop_history(self, individual):
+        self.pop_history += [individual]
 
-    def run_genetic_evolution(self):        
-        initial_score = majority_voting_score(self.X, self.y, self.estimators, self.classes)
+    def run_genetic_evolution(self):
+        # self.weights = get_weights(self.X, self.y, self.estimators, self.classes)
+        initial_score = majority_voting_score(self.X, self.y, self.estimators, self.classes)        
         print("\nInitial score = %f%%" % (initial_score * 100))
+        # input()
         prev_score = 0
 
         print("\n_________________________________________________________________")
@@ -207,11 +246,16 @@ class GeneticOptimizer(object):
             
             print("\nReproducing population...        ")
             self.natural_mutations = 0
-            self.soft_mutations = 0
-            self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.85, elitism=True)
+            self.forced_mutations = 0
+            self.skipped_crossover = 0
+            self.children_rejected = 0
+            # self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.95, elitism=True)
+            self.pop = self.__reproduce_population(fitness_prob, elitism=True)
             self.__update_duplicates()
             print("Natural mutations: %d" % (self.natural_mutations) + " (%.2f%%)" % ((self.natural_mutations / len(self.pop)) * 100))
-            print("Soft mutations:    %d" % (self.soft_mutations) + " (%.2f%%)" % ((self.soft_mutations / len(self.pop)) * 100))
+            print("Forced mutations:  %d" % (self.forced_mutations) + " (%.2f%%)" % ((self.forced_mutations / len(self.pop)) * 100))
+            print("Skipped crossover: %d" % (self.skipped_crossover) + " (%.2f%%)" % ((self.skipped_crossover / len(self.pop)) * 100))
+            print("Children rejected: %d" % (self.children_rejected))
 
             print("\nCalculating statistics...   ")
             prev_score, scores, best_individual = self.__calculate_population_stats(initial_score, prev_score)
