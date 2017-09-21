@@ -24,7 +24,8 @@ class GeneticOptimizer(object):
                  estimators, 
                  classes, 
                  data, 
-                 target, 
+                 target,
+                 val, 
                  pop_size=30, 
                  mutation_rate=0.1,
                  crossover_rate=0.9,
@@ -36,6 +37,7 @@ class GeneticOptimizer(object):
         self.classes = classes
         self.X = data
         self.y = target
+        self.val = val
         self.pop_size = pop_size
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
@@ -243,6 +245,7 @@ class GeneticOptimizer(object):
             print("Best score so far:  " + Fore.GREEN + Style.BRIGHT + "%f%%" % (self.best_so_far[0] * 100) + Style.RESET_ALL + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100) + " (%d) " % self.best_so_far_generation)
         else:
             print("Best score so far:  " + Fore.CYAN + Style.BRIGHT + "%f%%" % (self.best_so_far[0] * 100) + Style.RESET_ALL + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100) + " (%d) " % self.best_so_far_generation)
+        print("Score (validation): %f%%" % ((self.best_so_far[0] - self.val[0]) * 100))
          
 
         # self.__remove_outperformers(scores)
