@@ -108,6 +108,7 @@ class GeneticOptimizer(object):
             child = self.__generate_child(pair, n_point_crossover)
             original_child = child[:]
             while child in self.pop_history:
+            # while child in crossover_pop:
                 self.children_rejected += 1
                 child = self.__soft_mutate(child)
             if original_child != child:
@@ -130,7 +131,7 @@ class GeneticOptimizer(object):
     def __mutate(self, individual):
         if np.random.rand() <= self.mutation_rate:
             self.natural_mutations += 1
-            n_mutations = randint(1, len(individual) // 8)
+            n_mutations = randint(1, len(individual) // 2)
             index_history = []
             for _ in range(n_mutations):
                 index_mutation = randint(0, len(individual) - 1)
@@ -143,6 +144,9 @@ class GeneticOptimizer(object):
     def __random_selection(self, sorted_pop, sel_prob):
         pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
         pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
+        while pair[0][1] == pair[1][1]:
+            pair_indexes = np.random.choice(len(sorted_pop), 2, replace=False, p=sel_prob).tolist()
+            pair = [sorted_pop[pair_indexes[0]], sorted_pop[pair_indexes[1]]]
         return pair
 
     def __adjust_sel_sensivity(self, sel_sensivity):
@@ -213,8 +217,11 @@ class GeneticOptimizer(object):
         sorted_pop, scores = self.__rank_population()
         best_individual = sorted_pop[0]
         best_score = get_individual_score(best_individual, self.estimators, self.X, self.y, self.classes)
+        improvement = False
         if best_score > self.best_so_far[0]:
+            improvement = True
             self.best_so_far = (best_score, best_individual)
+            self.best_so_far_generation = self.global_step
         score_diff = (best_score - initial_score) * 100
         if best_score > prev_score:
             self.no_score_change = 0
@@ -230,7 +237,13 @@ class GeneticOptimizer(object):
         pop_diversity = self.__get_population_diversity()
         print("Chromossomes:       %d" % len(self.pop_history))
         print("Pop. diversity:     %.2f%%" % (pop_diversity * 100) + " (%d duplicates)" % self.duplicates_count)
-        print("Best score so far:  %f%%" % (self.best_so_far[0] * 100) + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100))
+        # print("Best score so far:  %f%%" % (self.best_so_far[0] * 100) + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100))
+
+        if improvement:
+            print("Best score so far:  " + Fore.GREEN + Style.BRIGHT + "%f%%" % (self.best_so_far[0] * 100) + Style.RESET_ALL + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100) + " (%d) " % self.best_so_far_generation)
+        else:
+            print("Best score so far:  " + Fore.CYAN + Style.BRIGHT + "%f%%" % (self.best_so_far[0] * 100) + Style.RESET_ALL + " (%f%%)" % ((self.best_so_far[0] - initial_score)*100) + " (%d) " % self.best_so_far_generation)
+         
 
         # self.__remove_outperformers(scores)
 
@@ -261,6 +274,7 @@ class GeneticOptimizer(object):
                 self.forced_mutations = 0
                 self.skipped_crossover = 0
                 self.children_rejected = 0
+                self.global_step = i
                 # self.pop = self.__reproduce_population(fitness_prob, sel_sensivity=0.95, elitism=True)
                 self.pop = self.__reproduce_population(fitness_prob, n_point_crossover=self.n_point_crossover, elitism=self.elitism)
                 self.__update_duplicates()
