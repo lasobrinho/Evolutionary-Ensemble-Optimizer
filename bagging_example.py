@@ -49,7 +49,8 @@ if __name__ == "__main__":
                                classes=bagging.classes_, 
                                data=X_test, 
                                target=y_test, 
-                               pop_size=100, 
+                               val=(val_initial_score, X_val, y_val), 
+                               pop_size=pop_size, 
                                mutation_rate=mutation_rate,
                                crossover_rate=crossover_rate,
                                iterations=iterations,
@@ -63,6 +64,7 @@ if __name__ == "__main__":
     print("Best individual score found: %f%% (Gain: %f%%)" % (best_found[0] * 100, (best_found[0] - test_initial_score) * 100))
     # print("Estimators combination for the best score:")
     # print(best_found[1])
+    print("Number of estimators: %d" % (len([estimator for estimator in best_found[1] if estimator])))
 
     print("\nTesting best combination on validation set...")
     final_score = get_individual_score(best_found[1], bagging.estimators_, X_val, y_val, bagging.classes_)
